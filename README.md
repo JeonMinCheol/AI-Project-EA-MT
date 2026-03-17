@@ -20,22 +20,3 @@ ea-mt-project/
 ├── reports/ # 보고서
 ├── notebooks/ # 분석 노트북
 └── tests/ # 테스트 코드
-
----
-
-## 기본 실행 흐름
-
-1️⃣ 데이터 전처리
-python scripts/data/parse_eamt.py
-
-2️⃣ KB 캐시 생성
-python scripts/data/build_kb_cache.py
-
-3️⃣ LoRA 학습
-python scripts/train/train_lora.py
-
-4️⃣ 추론
-python scripts/inference/run_entity_plan.py
-
-5️⃣ 평가
-python scripts/eval/collect_results.py
