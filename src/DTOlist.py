@@ -22,10 +22,11 @@ class KBEntityRecord():
     설명: qid_index의 값 객체. QID 기준 direct lookup 결과를 표준화한 엔티티 레코드.
     비고: target_label이 없거나 language_available=False이면 기본 추론 후보에서 제외하거나 fallback 대상로 표시한다.
     """
-    def __init__(self, qid:str, label_en:str|None, aliases_en:list[str], target_label:str|None, target_aliases:list[str], entity_type:str|None, description:str|None,normalized_surfaces:list[str], language_avaliable:bool, popularity_score:float):
+    def __init__(self, qid:str, label_en:str|None, aliases_en:list[str], target_lang:str|None, target_label:str|None, target_aliases:list[str], entity_type:str|None, description:str|None,normalized_surfaces:list[str], language_avaliable:bool, popularity_score:float):
         self.qid = qid
         self.label_en = label_en
         self.aliases_en = aliases_en
+        self.target_lang = target_lang
         self.target_label = target_label
         self.target_aliases = target_aliases
         self.entity_type = entity_type
@@ -35,8 +36,8 @@ class KBEntityRecord():
         self.popularity_score = popularity_score
 
     def __call__(self, *args, **kwds):
-        return self.qid, self.label_en, self.aliases_en, self.target_label, self.target_aliases, self.entity_type, self.description, self.normalized_surfaces, self.language_avaliable, self.popularity_score
-    
+        return self.qid, self.label_en, self.aliases_en, self.target_label, self.target_aliases, self.entity_type, self.description, self.normalized_surfaces, self.language_avaliable, self.popularity_score, self.target_lang
+
 class SpanMatch():
     """
     설명: source 문장 내 focal mention 위치를 나타내는 정렬 결과.
