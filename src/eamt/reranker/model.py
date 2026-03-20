@@ -5,11 +5,11 @@ from typing import Any, Dict, Iterable, Sequence
 try:
     import torch
     import torch.nn as nn
-except Exception:  # pragma: no cover
+except ImportError:  # pragma: no cover
     torch = None
     nn = None
 
-from src.eamt.reranker.features import NUMERIC_FEATURE_KEYS, feature_dict_to_numeric_vector
+from .features import NUMERIC_FEATURE_KEYS, feature_dict_to_numeric_vector
 
 
 if nn is None:
