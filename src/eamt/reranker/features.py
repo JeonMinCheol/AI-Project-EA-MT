@@ -126,7 +126,6 @@ def _extract_aliases(candidate: Any) -> List[str]:
     else:
         aliases = []
 
-    # 중복 제거 + 순서 보존
     deduped: List[str] = []
     seen = set()
     for alias in aliases:
@@ -155,16 +154,6 @@ def _extract_alias_count(candidate: Any, aliases: List[str]) -> int:
     if isinstance(explicit_count, (int, float)) and explicit_count >= 0:
         return int(explicit_count)
     return len(aliases)
-
-
-def _extract_float(candidate: Any, name: str, default: float = 0.0) -> float:
-    value = _safe_getattr(candidate, name, default)
-    try:
-        if value is None or (isinstance(value, float) and math.isnan(value)):
-            return default
-        return float(value)
-    except Exception:
-        return default
 
 
 def _extract_popularity(candidate: Any) -> float:
@@ -307,13 +296,11 @@ def build_candidate_feature_vector(
         aliases=aliases,
     )
 
-    # 스케일 안정화를 위해 일부 카운트성 feature는 log1p를 적용합니다.
     scaled_target_label_len = round(math.log1p(len(target_label)), 6)
     scaled_alias_count = round(math.log1p(raw_alias_count), 6)
     scaled_ambiguity_count = round(math.log1p(raw_ambiguity_count), 6)
 
     features: Dict[str, FeatureValue] = {
-        # 디버깅/로그 용 텍스트 메타데이터
         "source_text": _safe_text(source),
         "source_span_text": source_span_text,
         "comparison_source_text": comparison_source,
@@ -324,7 +311,6 @@ def build_candidate_feature_vector(
         "qid": qid,
         "candidate_source": candidate_source,
         "span_match_kind": span_match_kind,
-        # 숫자형 모델 feature
         "context_suitability": context_suitability,
         "has_source_span": has_span,
         "span_match_score": round(span_match_score, 6),
@@ -336,10 +322,8 @@ def build_candidate_feature_vector(
         "has_description": has_description,
         "popularity_score": round(raw_popularity_score, 6),
         "ambiguity_count": scaled_ambiguity_count,
-        # prior는 numeric vector에는 넣지 않고 메타데이터로만 유지
         "is_canonical_prior": is_canonical,
         "prior_bonus": 1.0 if is_canonical else 0.0,
-        # raw 값도 로그/분석용으로 유지
         "raw_target_label_len": len(target_label),
         "raw_alias_count": raw_alias_count,
         "raw_ambiguity_count": raw_ambiguity_count,
