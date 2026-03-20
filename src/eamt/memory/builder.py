@@ -4,8 +4,13 @@ from DTOlist import *
 """
 builder.py 역할:
 앞 단계(index / retrieval / reranker)에서 넘어온 CandidateEntity 또는
-ScoredCandidate를 받아 EntityMemoryBlock을 생성하고,
+ScoredCandidate를 받아 top-1 후보 중심의 EntityMemoryBlock을 생성하고,
 prompt에 넣을 문자열로 렌더링한다.
+
+현재 버전:
+- source_sentence 전체를 추가로 받을 수 있음
+- DTOlist는 아직 수정하지 않으므로, source_sentence는
+  entry 내부와 memory 객체의 동적 속성으로 저장
 """
 
 
@@ -57,11 +62,7 @@ def _unique_keep_order(values):
 
 def _unwrap_candidate(candidate_like):
     """
-    CandidateEntity 또는 ScoredCandidate를 받아
-    실제 CandidateEntity를 반환한다.
-
-    - CandidateEntity면 그대로 반환
-    - ScoredCandidate면 .candidate 반환
+    CandidateEntity 또는 ScoredCandidate를 받아 실제 CandidateEntity를 반환한다.
     """
     if isinstance(candidate_like, ScoredCandidate):
         return candidate_like.candidate
@@ -85,84 +86,97 @@ def _extract_source_span(candidate):
     return ""
 
 
-def build_entity_memory_block(top_candidates, alias_limit=1):
+def build_entity_memory_block(top_candidates, source_sentence="", alias_limit=1):
     """
-    앞 단계에서 넘어온 후보 리스트를 받아 EntityMemoryBlock 생성.
+    top-1 후보를 중심으로 EntityMemoryBlock 생성.
 
     입력:
         top_candidates: CandidateEntity 또는 ScoredCandidate 리스트
+        source_sentence: 원문 전체 문장
         alias_limit: alias 최대 포함 개수
 
     출력:
         EntityMemoryBlock 객체
+
+    정책:
+        - top-1 후보만 사용
+        - canonical target 중심
+        - alias는 소수만 포함
+        - 필요 시 qid, entity_type, description 유지
+        - source_sentence 전체와 source_span 둘 다 보존
     """
-    entries = []
+    source_sentence = _safe_str(source_sentence)
 
-    memory_source_span = None
-    memory_qid = None
-    memory_canonical_target = None
-    memory_alias_candidates = []
-    memory_entity_type = None
-    memory_description = None
+    if not top_candidates:
+        memory_block = EntityMemoryBlock(
+            entries=[],
+            memory_modes="canonical_only",
+            rendered_text="",
+            source_span="",
+            qid="",
+            canonical_target="",
+            alias_candidates=[],
+            entity_type="",
+            description="",
+        )
+        # DTO에 아직 없으므로 동적으로 붙임
+        memory_block.source_sentence = source_sentence
+        return memory_block
 
-    for idx, candidate_like in enumerate(top_candidates):
-        candidate = _unwrap_candidate(candidate_like)
+    top_candidate_like = top_candidates[0]
+    candidate = _unwrap_candidate(top_candidate_like)
 
-        source_span = _extract_source_span(candidate)
-        qid = _safe_str(candidate.qid)
-        canonical_target = _safe_str(candidate.target_label)
-        alias_candidates = _safe_list(candidate.target_aliases)
-        entity_type = _safe_str(candidate.entity_type)
-        description = _safe_str(candidate.description)
+    source_span = _extract_source_span(candidate)
+    qid = _safe_str(candidate.qid)
+    canonical_target = _safe_str(candidate.target_label)
+    alias_candidates = _safe_list(candidate.target_aliases)
+    entity_type = _safe_str(candidate.entity_type)
+    description = _safe_str(candidate.description)
 
-        # canonical_target과 같은 alias 제거
-        alias_candidates = [
-            alias for alias in alias_candidates
-            if alias and alias != canonical_target
-        ]
+    # canonical target과 같은 alias 제거
+    alias_candidates = [
+        alias for alias in alias_candidates
+        if alias and alias != canonical_target
+    ]
 
-        alias_candidates = _unique_keep_order(alias_candidates)
+    # 중복 제거 + 순서 유지
+    alias_candidates = _unique_keep_order(alias_candidates)
 
-        if alias_limit >= 0:
-            alias_candidates = alias_candidates[:alias_limit]
+    # alias 개수 제한
+    if alias_limit >= 0:
+        alias_candidates = alias_candidates[:alias_limit]
 
-        entry = {
-            "source_span": source_span,
-            "qid": qid,
-            "canonical_target": canonical_target,
-            "alias_candidates": alias_candidates,
-            "entity_type": entity_type,
-            "description": description,
-        }
-        entries.append(entry)
-
-        # 첫 번째(top-1) 후보 기준으로 block-level 요약 필드 채움
-        if idx == 0:
-            memory_source_span = source_span
-            memory_qid = qid
-            memory_canonical_target = canonical_target
-            memory_alias_candidates = alias_candidates
-            memory_entity_type = entity_type
-            memory_description = description
+    entry = {
+        "source_sentence": source_sentence,
+        "source_span": source_span,
+        "qid": qid,
+        "canonical_target": canonical_target,
+        "alias_candidates": alias_candidates,
+        "entity_type": entity_type,
+        "description": description,
+    }
 
     memory_block = EntityMemoryBlock(
-        entries=entries,
+        entries=[entry],
         memory_modes="canonical_plus_alias" if alias_limit != 0 else "canonical_only",
         rendered_text="",
-        source_span=memory_source_span,
-        qid=memory_qid,
-        canonical_target=memory_canonical_target,
-        alias_candidates=memory_alias_candidates,
-        entity_type=memory_entity_type,
-        description=memory_description,
+        source_span=source_span,
+        qid=qid,
+        canonical_target=canonical_target,
+        alias_candidates=alias_candidates,
+        entity_type=entity_type,
+        description=description,
     )
+
+    # DTO에 아직 source_sentence 필드가 없으므로 동적으로 붙임
+    memory_block.source_sentence = source_sentence
 
     return memory_block
 
 
 def render_entity_memory_text(memory, target_lang):
     """
-    EntityMemoryBlock을 prompt에 삽입할 문자열로 렌더링한다.
+    EntityMemoryBlock을 prompt에 삽입 가능한 문자열로 렌더링한다.
 
     입력:
         memory: EntityMemoryBlock
@@ -181,6 +195,11 @@ def render_entity_memory_text(memory, target_lang):
 
     lines = ["[ENTITY MEMORY]"]
 
+    # memory block 레벨 source_sentence가 있으면 같이 보여줌
+    source_sentence = _safe_str(getattr(memory, "source_sentence", ""))
+    if source_sentence:
+        lines.append(f"- Source Sentence: {source_sentence}")
+
     for entry in memory.entries:
         source_span = _safe_str(entry.get("source_span"))
         qid = _safe_str(entry.get("qid"))
@@ -189,7 +208,8 @@ def render_entity_memory_text(memory, target_lang):
         entity_type = _safe_str(entry.get("entity_type"))
         description = _safe_str(entry.get("description"))
 
-        lines.append(f"- Source Span: {source_span}")
+        if source_span:
+            lines.append(f"- Source Span: {source_span}")
 
         if qid:
             lines.append(f"  QID: {qid}")
