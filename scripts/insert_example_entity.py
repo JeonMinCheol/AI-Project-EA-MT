@@ -59,21 +59,24 @@ def main():
                 cur.executemany(insert_query, records)
                 conn.commit()
 
-        val_path = os.path.join(DATA_DIR, "validation")
-        for file_path in get_jsonl_files(val_path):
-            records = []
-            with open(file_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    data = json.loads(line)
-                    ex_id = id_map.get(data['id'])
-                    qid = data.get('wikidata_id')
-                    
-                    if ex_id and qid:
-                        records.append((ex_id, qid, 0))
-            
-            if records:
-                cur.executemany(insert_query, records)
-                conn.commit()
+        for folder_name in ["validation", "test"]:
+            folder_path = os.path.join(DATA_DIR, folder_name)
+            if not os.path.exists(folder_path): 
+                continue
+            for file_path in get_jsonl_files(folder_path):
+                records = []
+                with open(file_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        data = json.loads(line)
+                        ex_id = id_map.get(data['id'])
+                        qid = data.get('wikidata_id')
+                        
+                        if ex_id and qid:
+                            records.append((ex_id, qid, 0))
+                
+                if records:
+                    cur.executemany(insert_query, records)
+                    conn.commit()
 
     except Exception as e:
         conn.rollback()

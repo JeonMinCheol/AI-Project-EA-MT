@@ -16,7 +16,6 @@ DB_CONFIG = {
     "charset": "utf8mb4"
 }
 
-
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INPUT_FILE = os.path.join(BASE_DIR, "data", "processed", "qid_locale.json")
 
@@ -45,12 +44,24 @@ def main():
     with open(INPUT_FILE, "r", encoding="utf-8") as f:
         qid_data = json.load(f)
     
-    lang_map = {}
-    for it in qid_data:
-        lang_map.setdefault(it['locale'], []).append(it['qid'])
 
     conn = pymysql.connect(**DB_CONFIG)
     cur = conn.cursor()
+
+    cur.execute("SELECT qid, lang_code FROM entity_term WHERE term_type = 'label'")
+    existing_pairs = set(cur.fetchall()) 
+
+    lang_map = {}
+    new_count = 0
+    for it in qid_data:
+        if (it['qid'], it['locale']) not in existing_pairs:
+            lang_map.setdefault(it['locale'], []).append(it['qid'])
+            new_count += 1
+
+    if new_count == 0:
+        cur.close()
+        conn.close()
+        return
 
     insert_query = """
     INSERT IGNORE INTO entity_term (qid, lang_code, term_type, term_text, normalized_text)
@@ -70,19 +81,19 @@ def main():
 
                 for l_code, info in details.get("labels", {}).items():
                     records.append((qid, l_code, "label", info['value'], None))
-                
+
                 for a_code, alias_list in details.get("aliases", {}).items():
                     for alias in alias_list:
                         records.append((qid, a_code, "alias", alias['value'], None))
-                
+
                 for d_code, info in details.get("descriptions", {}).items():
                     records.append((qid, d_code, "description", info['value'], None))
             
             if records:
-                print(f"[{lang}] {min(i+50, len(unique_qids))}/{len(unique_qids)} processed...", end="\r")
                 try:
                     cur.executemany(insert_query, records)
                     conn.commit()
+
                 except Exception as e:
                     conn.rollback()
 

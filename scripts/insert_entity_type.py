@@ -16,7 +16,10 @@ DB_CONFIG = {
 
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-VAL_DIR = os.path.join(BASE_DIR, "data", "raw", "validation")
+DATA_DIRS = [
+    os.path.join(BASE_DIR, "data", "raw", "validation"),
+    os.path.join(BASE_DIR, "data", "raw", "test")
+]
 
 def get_jsonl_files(root_path):
     jsonl_files = []
@@ -30,14 +33,18 @@ def main():
     conn = pymysql.connect(**DB_CONFIG)
     cur = conn.cursor()
 
-    insert_query = "INSERT INTO entity_type (type_text, qid) VALUES (%s, %s)"
+    insert_query = "INSERT IGNORE INTO entity_type (type_text, qid) VALUES (%s, %s)"
 
     unique_type_mappings = set()
 
     try:
-        val_files = get_jsonl_files(VAL_DIR)
+        jsonl_files = []
+        for directory in DATA_DIRS:
+            if os.path.exists(directory):
+                jsonl_files.extend(get_jsonl_files(directory))
         
-        for file_path in val_files:
+        for file_path in jsonl_files:
+            file_name = os.path.basename(file_path)
             with open(file_path, "r", encoding="utf-8") as f:
                 for line in f:
                     data = json.loads(line)
