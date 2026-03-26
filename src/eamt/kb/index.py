@@ -1,6 +1,6 @@
 import re
 from collections import defaultdict
-from DTOlist import *
+from src.DTOlist import *
 
 """
 surface 뜻: surface는 문장에 실제로 보이는 문자열을 뜻함
