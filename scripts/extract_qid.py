@@ -6,6 +6,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RAW_DATA_DIR = os.path.join(BASE_DIR, "data", "raw")
 VALIDATION_DIR = os.path.join(RAW_DATA_DIR, "validation")
 TRAIN_DIR = os.path.join(RAW_DATA_DIR, "train")
+TEST_DIR = os.path.join(RAW_DATA_DIR, "test")
 
 PROCESSED_DATA_DIR = os.path.join(BASE_DIR, "data", "processed")
 OUTPUT_FILE = os.path.join(PROCESSED_DATA_DIR, "qid_locale.json")
@@ -59,6 +60,15 @@ if os.path.exists(TRAIN_DIR):
                 print(f"{filename}: {c} ")
 else:
     print(f"Not Found TRAIN DIR")
+
+if os.path.exists(TEST_DIR):
+    for filename in os.listdir(TEST_DIR):
+        if filename.endswith(".jsonl"):
+            path = os.path.join(TEST_DIR, filename)
+            c = process_file(path, is_mintaka=False)
+            print(f"TEST - {filename}: {c} ")
+else:
+    print(f"Not Found TEST DIR")
 
 final_list = [{"qid": q, "locale": l} for q, l in sorted(list(qid_locale_pairs))]
 

@@ -35,37 +35,29 @@ def main():
     """
 
     try:
-        train_path = os.path.join(DATA_DIR, "train")
-        for file_path in get_jsonl_files(train_path):
-            records = []
-            with open(file_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    data = json.loads(line)
-                    records.append((
-                        "train",
-                        data.get("source_locale"),
-                        data.get("target_locale"),
-                        data.get("source"),
-                        data.get("id")
-                    ))
-            cur.executemany(insert_query, records)
-            conn.commit()
+        for split_name in ["train", "validation", "test"]:
+            split_path = os.path.join(DATA_DIR, split_name)
 
-        val_path = os.path.join(DATA_DIR, "validation")
-        for file_path in get_jsonl_files(val_path):
-            records = []
-            with open(file_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    data = json.loads(line)
-                    records.append((
-                        "validation",
-                        data.get("source_locale"),
-                        data.get("target_locale"),
-                        data.get("source"),
-                        data.get("id")
-                    ))
-            cur.executemany(insert_query, records)
-            conn.commit()
+            if not os.path.exists(split_path):
+                continue
+
+            for file_path in get_jsonl_files(split_path):
+                records = []
+                with open(file_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        data = json.loads(line)
+                        records.append((
+                            split_name,
+                            data.get("source_locale"),
+                            data.get("target_locale"),
+                            data.get("source"),
+                            data.get("id")
+                        ))
+                
+                if records:
+                    cur.executemany(insert_query, records)
+                    conn.commit()
+                    
 
     except Exception as e:
         conn.rollback()
