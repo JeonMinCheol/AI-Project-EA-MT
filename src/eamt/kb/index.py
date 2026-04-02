@@ -168,7 +168,7 @@ def lookup_entity_by_qid(
     return results if results else None
 
 
-def generate_surface_ngrams(source: str, max_n: int = 5) -> list[str]:
+def generate_surface_ngrams(source: str, min_n: int = 1, max_n: int = 5) -> list[str]:
     """
     source 문장에서 surface search에 사용할 n-gram 후보를 생성한다.
 
@@ -196,7 +196,10 @@ def generate_surface_ngrams(source: str, max_n: int = 5) -> list[str]:
     tokens = normalize_surface(source).split()
     ngrams = set()
 
-    for n in range(1, max_n + 1):
+    min_n = max(1, int(min_n))
+    max_n = max(min_n, int(max_n))
+
+    for n in range(min_n, max_n + 1):
         for i in range(len(tokens) - n + 1):
             ngrams.add(" ".join(tokens[i:i+n]))
 

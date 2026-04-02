@@ -29,6 +29,14 @@ except Exception as transformers_import_error:  # pragma: no cover
 else:  # pragma: no cover
     TRANSFORMERS_IMPORT_ERROR_DETAIL = None
 
+try:
+    from peft import PeftModel
+except Exception as peft_import_error:  # pragma: no cover
+    PeftModel = None
+    PEFT_IMPORT_ERROR_DETAIL = str(peft_import_error)
+else:  # pragma: no cover
+    PEFT_IMPORT_ERROR_DETAIL = None
+
 from DTOlist import EAMTExample, EntityMemoryBlock, RuntimeResources, TranslationDraft
 
 try:
@@ -268,6 +276,20 @@ def _require_transformers() -> None:
         )
         raise ImportError(
             "Qwen 모델을 불러오려면 `transformers`가 현재 실행 중인 Python 환경에서 "
+            "정상 import 되어야 합니다."
+            + detail
+        )
+
+
+def _require_peft() -> None:
+    if PeftModel is None:
+        detail = (
+            f" 현재 감지된 상태: {PEFT_IMPORT_ERROR_DETAIL}"
+            if PEFT_IMPORT_ERROR_DETAIL
+            else ""
+        )
+        raise ImportError(
+            "LoRA adapter를 불러오려면 `peft`가 현재 실행 중인 Python 환경에서 "
             "정상 import 되어야 합니다."
             + detail
         )
@@ -645,6 +667,8 @@ def load_qwen2_5_instruct(
     torch_dtype: Any = "auto",
     trust_remote_code: bool = True,
     local_files_only: bool = False,
+    peft_adapter_path: str | None = None,
+    merge_peft_adapter: bool = False,
     tokenizer_kwargs: Mapping[str, Any] | None = None,
     model_kwargs: Mapping[str, Any] | None = None,
 ) -> tuple[Any, Any]:
@@ -693,6 +717,28 @@ def load_qwen2_5_instruct(
         local_files_only=local_files_only,
         **model_options,
     )
+
+    adapter_path = _safe_str(peft_adapter_path)
+    if adapter_path:
+        _require_peft()
+        _log_stage_event(
+            "LoRA Adapter Load",
+            "Start",
+            adapter_path=adapter_path,
+            merge=merge_peft_adapter,
+        )
+        model = PeftModel.from_pretrained(
+            model,
+            adapter_path,
+        )
+        if merge_peft_adapter:
+            model = model.merge_and_unload()
+        _log_stage_event(
+            "LoRA Adapter Load",
+            "End",
+            adapter_path=adapter_path,
+            merge=merge_peft_adapter,
+        )
 
     if getattr(tokenizer, "pad_token", None) is None and getattr(tokenizer, "eos_token", None) is not None:
         tokenizer.pad_token = tokenizer.eos_token

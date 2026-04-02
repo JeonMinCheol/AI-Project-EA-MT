@@ -147,6 +147,8 @@ def collect_entity_candidates(
     per_surface_k: int = 5,
     min_char_len: int = 2,
     max_n: int = 5,
+    use_anchored_lookup: bool = True,
+    use_surface_search: bool = True,
 ) -> List[CandidateEntity]:
     """
     - QID가 있으면 direct lookup 우선
@@ -166,7 +168,7 @@ def collect_entity_candidates(
     collected: List[CandidateEntity] = []
 
     # 1) anchored QID lookup
-    if gold_qid and qid_index is not None:
+    if use_anchored_lookup and gold_qid and qid_index is not None:
         records = lookup_entity_by_qid(qid_index, gold_qid, target_lang)
         record = _best_record(records)
         if record is not None:
@@ -189,7 +191,7 @@ def collect_entity_candidates(
             )
 
     # 2) SALT-style surface search
-    if surface_index is not None:
+    if use_surface_search and surface_index is not None:
         spans = extract_candidate_spans_from_source(
             source=source,
             min_n=1,

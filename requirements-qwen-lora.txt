@@ -1,0 +1,13 @@
+# Core training stack for Qwen LoRA fine-tuning
+torch>=2.5.0
+transformers>=4.37.0
+peft>=0.13.0
+accelerate>=0.34.0
+safetensors>=0.4.5
+
+# Project data access
+pymysql>=1.1.1
+python-dotenv>=1.0.1
+
+# Optional for 4-bit / 8-bit loading
+# bitsandbytes>=0.43.0

@@ -92,12 +92,26 @@ def build_translation_prompt(source, target_lang, memory=None, mode="entity-awar
     memory_text = _get_memory_text(memory)
 
     if memory_text:
+        normalized_memory_text = memory_text
+        if _safe_str(memory_text).startswith("[ENTITY MEMORY]"):
+            normalized_memory_text = memory_text
+            prompt_lines = [
+                "[TASK]",
+                task_text,
+                "",
+                normalized_memory_text,
+                "",
+                "[SOURCE]",
+                source,
+            ]
+            return "\n".join(prompt_lines)
+
         prompt_lines = [
             "[TASK]",
             task_text,
             "",
             "[ENTITY MEMORY]",
-            memory_text,
+            normalized_memory_text,
             "",
             "[SOURCE]",
             source,
