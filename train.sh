@@ -4,7 +4,7 @@
 #SBATCH --cpus-per-gpu=8
 #SBATCH --mem-per-gpu=32G
 #SBATCH -p batch_grad
-#SBATCH -w ariel-v2
+#SBATCH -w ariel-v7
 #SBATCH -t 4-0
 #SBATCH -o logs/slurm-%A.out
 

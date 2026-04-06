@@ -106,6 +106,7 @@ python scripts/evaluate_qwen_lora_db.py \
 ```
 
 `--merge-peft-adapter`를 빼면 adapter를 붙인 상태 그대로 평가하고, 넣으면 base model에 merge한 뒤 평가합니다.
+`--prediction-output-path`를 주면 같은 경로 기준으로 `*_metrics.json` 파일도 자동 저장됩니다.
 
 학습 때 사용한 pipeline 조건을 그대로 복원하고 싶다면 `training_summary.json`을 자동으로 읽게 할 수 있습니다.
 
@@ -118,6 +119,7 @@ python scripts/evaluate_qwen_lora_db.py \
 ```
 
 이 경우 `model_name`, `source_locale`, `target_locale`, `mode`, `entity_pipeline_mode`, retrieval/reranker 설정, `system_prompt`를 adapter 폴더의 `training_summary.json`에서 자동 복원합니다.
+별도 파일명을 쓰고 싶으면 `--metrics-output-path results/my_eval_metrics.json`으로 메트릭 저장 경로를 직접 지정할 수 있습니다.
 
 예전 실험처럼 `training_summary.json`에 `alias_limit` 또는 `description_max_chars`가 없는 경우에는 현재 평가 기본값이 사용되므로, 그 값을 바꿔 학습했었다면 평가 커맨드에 직접 다시 넣어주세요.
 

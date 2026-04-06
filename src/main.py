@@ -123,6 +123,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional path to save EA-MT prediction JSONL",
     )
     parser.add_argument(
+        "--metrics-output-path",
+        default=None,
+        help=(
+            "Optional path to save evaluation metrics JSON. "
+            "If omitted, it is auto-derived from --prediction-output-path or --peft-adapter-path."
+        ),
+    )
+    parser.add_argument(
         "--no-progress",
         action="store_true",
         help="Disable tqdm progress bars during generation and evaluation",
@@ -237,7 +245,62 @@ def _build_load_model_kwargs(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
-def _print_results(results: dict[str, Any], prediction_output_path: str | None) -> None:
+def _compact_results(results: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "dataset": results.get("dataset", {}),
+        "metrics": results.get("metrics", {}),
+        "runtime": results.get("runtime", {}),
+    }
+
+
+def _resolve_metrics_output_path(args: argparse.Namespace) -> Path | None:
+    if args.metrics_output_path:
+        return Path(args.metrics_output_path)
+
+    if args.prediction_output_path:
+        prediction_path = Path(args.prediction_output_path)
+        return prediction_path.with_name(f"{prediction_path.stem}_metrics.json")
+
+    if args.peft_adapter_path:
+        return Path(str(args.peft_adapter_path)) / "evaluation_metrics.json"
+
+    return None
+
+
+def _save_metrics_summary(
+    results: dict[str, Any],
+    args: argparse.Namespace,
+    prediction_output_path: str | None,
+    output_path: str | Path,
+) -> Path:
+    resolved_path = Path(output_path)
+    resolved_path.parent.mkdir(parents=True, exist_ok=True)
+
+    summary = _compact_results(results)
+    summary["evaluation"] = {
+        "model_name": results.get("model_name") or args.model_name,
+        "split": args.split,
+        "target_locale": args.target_locale,
+        "source_locale": args.source_locale,
+        "mode": args.mode,
+        "entity_pipeline_mode": args.entity_pipeline_mode if args.mode == "entity-aware" else None,
+        "peft_adapter_path": args.peft_adapter_path,
+        "merge_peft_adapter": bool(args.merge_peft_adapter),
+        "prediction_output_path": prediction_output_path,
+    }
+
+    with resolved_path.open("w", encoding="utf-8") as file_obj:
+        json.dump(summary, file_obj, ensure_ascii=False, indent=2)
+        file_obj.write("\n")
+
+    return resolved_path
+
+
+def _print_results(
+    results: dict[str, Any],
+    prediction_output_path: str | None,
+    metrics_output_path: str | Path | None,
+) -> None:
     metrics = results["metrics"]
     dataset_info = results.get("dataset", {})
     runtime_info = results.get("runtime", {})
@@ -245,7 +308,7 @@ def _print_results(results: dict[str, Any], prediction_output_path: str | None) 
     print("=============================================")
     print(f"Split               : {dataset_info.get('split')}")
     print(f"Target Locale       : {dataset_info.get('target_locale')}")
-    print(f"Source Locale       : en")
+    print(f"Source Locale       : {dataset_info.get('source_locale')}")
     print(f"Num Examples        : {dataset_info.get('num_examples')}")
     print(f"Model               : {results.get('model_name')}")
     print("---------------------------------------------")
@@ -261,12 +324,10 @@ def _print_results(results: dict[str, Any], prediction_output_path: str | None) 
 
     if prediction_output_path:
         print(f"Predictions saved to: {prediction_output_path}")
+    if metrics_output_path:
+        print(f"Metrics saved to    : {metrics_output_path}")
 
-    compact_results = {
-        "dataset": dataset_info,
-        "metrics": metrics,
-        "runtime": runtime_info,
-    }
+    compact_results = _compact_results(results)
     print(json.dumps(compact_results, ensure_ascii=False))
 
 
@@ -311,7 +372,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         description_max_chars=args.description_max_chars,
     )
 
-    _print_results(results, args.prediction_output_path)
+    metrics_output_path = _resolve_metrics_output_path(args)
+    if metrics_output_path is not None:
+        _save_metrics_summary(
+            results,
+            args,
+            prediction_output_path=args.prediction_output_path,
+            output_path=metrics_output_path,
+        )
+
+    _print_results(results, args.prediction_output_path, metrics_output_path)
     return 0
 
 
