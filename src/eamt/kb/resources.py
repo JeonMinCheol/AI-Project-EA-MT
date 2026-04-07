@@ -4,8 +4,11 @@ import os
 from collections import defaultdict
 from typing import Any, Dict, List, Optional
 
-import pymysql
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except Exception:  # pragma: no cover
+    def load_dotenv(*_args, **_kwargs):
+        return False
 
 from src.DTOlist import KBEntityRecord, RuntimeResources
 from .index import build_qid_index, build_surface_index, normalize_surface
@@ -14,6 +17,11 @@ load_dotenv()
 
 
 def _db_config() -> Dict[str, Any]:
+    try:
+        import pymysql
+    except Exception as import_error:  # pragma: no cover
+        raise ImportError("pymysql가 설치되어 있어야 KB 리소스를 DB에서 불러올 수 있습니다.") from import_error
+
     return {
         "host": os.getenv("DB_HOST"),
         "port": int(os.getenv("DB_PORT", 3306)),
@@ -26,6 +34,7 @@ def _db_config() -> Dict[str, Any]:
 
 
 def load_kb_records_from_db(target_lang: str) -> List[KBEntityRecord]:
+    import pymysql
     conn = pymysql.connect(**_db_config())
     try:
         with conn.cursor() as cur:
