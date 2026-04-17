@@ -1,7 +1,27 @@
 import re
 import json
-from vllm import LLM, SamplingParams
-from DTOlist import TranslationDraft, EntityMemoryBlock, ERCMDecision
+from typing import Any
+
+try:
+    from vllm import LLM, SamplingParams
+except ModuleNotFoundError:  # pragma: no cover - fallback for non-vLLM test/runtime environments
+    LLM = Any
+
+    class SamplingParams:  # type: ignore[override]
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+from DTOlist import TranslationDraft, EntityMemoryBlock, ERCMDecision, ScoredCandidate
+
+
+_ERROR_TO_REASON = {
+    "Omission": "missing_canonical",
+    "Residue": "english_residue",
+    "Wrong Alias": "wrong_alias",
+    "Grammar": "grammar_issue",
+    "Normal": "normal",
+}
+_VALID_ERROR_TYPES = {"Omission", "Residue", "Wrong Alias", "Grammar", "Normal"}
 
 _LANG_NAME: dict[str, str] = {
     "ko": "Korean",
@@ -19,6 +39,7 @@ _LANG_NAME: dict[str, str] = {
 _SYSTEM_PROMPT = """You are an expert translation quality evaluator specializing in entity translation.
 Your task is to identify errors in a machine-translated sentence, focusing specifically on how a named entity was handled.
 You must respond only in JSON format with no additional text."""
+
 
 def _build_user_prompt(
     source: str,
@@ -85,6 +106,7 @@ The entity {span_str} is expected to be present in the translation. Evaluate bas
 }}
 """
 
+
 COMMON_ALLOWED = r"a-zA-Z0-9\s.,!?\"'()\-:;/@#%&" + r"\u3000-\u303F\uFF00-\uFFEF"
 
 patterns = {
@@ -97,8 +119,9 @@ patterns = {
     "es": rf"[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑüÜ¡¿\s.,!?\"'()\-:;{COMMON_ALLOWED}]",
     "fr": rf"[^a-zA-Z0-9àâæçéèêëîïôœùûüÿÀÂÆÇÉÈÊËÎÏÔŒÙÛÜŸ\s.,!?\"'()\-:;{COMMON_ALLOWED}]",
     "it": rf"[^a-zA-Z0-9àèéìòóùÀÈÉÌÒÓÙ\s.,!?\"'()\-:;{COMMON_ALLOWED}]",
-    "tr": rf"[^a-zA-Z0-9çğıöşüÇĞİÖŞÜ\s.,!?\"'()\-:;{COMMON_ALLOWED}]"
+    "tr": rf"[^a-zA-Z0-9çğıöşüÇĞİÖŞÜ\s.,!?\"'()\-:;{COMMON_ALLOWED}]",
 }
+
 
 def pre_check_errors(draft_text, alias_set, target_lang):
     if not any(alias in draft_text for alias in alias_set):
@@ -109,8 +132,31 @@ def pre_check_errors(draft_text, alias_set, target_lang):
 
     if illegal_chars:
         return "Residue", f"Contains illegal characters for {target_lang}: {''.join(set(illegal_chars))}"
-    
+
     return None, None
+
+
+def _to_float_or_none(value) -> float | None:
+    if value is None:
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed < 0.0:
+        return 0.0
+    if parsed > 1.0:
+        return 1.0
+    return parsed
+
+
+def _extract_json_text(raw_text: str) -> str:
+    stripped = raw_text.strip()
+    if stripped.startswith("```"):
+        stripped = re.sub(r"^```(?:json)?\s*", "", stripped)
+        stripped = re.sub(r"\s*```$", "", stripped)
+    return stripped.strip()
+
 
 def build_alias_set(memory: EntityMemoryBlock) -> list[str]:
     candidates = []
@@ -121,34 +167,88 @@ def build_alias_set(memory: EntityMemoryBlock) -> list[str]:
         if normalized and normalized.lower() not in seen:
             seen.add(normalized.lower())
             candidates.append(normalized)
-    
+
     if memory.canonical_target:
         _add(memory.canonical_target)
     if memory.alias_candidates:
         for a in memory.alias_candidates:
             if a:
                 _add(a)
-    
+
     return candidates
 
+
+def should_trigger_ercm(
+    draft: TranslationDraft,
+    memory: EntityMemoryBlock,
+    top_candidate: ScoredCandidate | None,
+    threshold: float,
+) -> ERCMDecision:
+    """
+    Rule-first ERCM trigger function aligned with v2 I/O spec:
+    should_trigger_ercm(draft, memory, top_candidate, threshold) -> ERCMDecision
+    """
+    reasons: list[str] = []
+    error_types: list[str] = []
+
+    alias_set = build_alias_set(memory) if memory else []
+    draft_text = draft.draft_text if draft and draft.draft_text else ""
+
+    # 1) canonical/alias omission signal
+    if alias_set and not any(alias in draft_text for alias in alias_set):
+        reasons.append("missing_canonical")
+        error_types.append("Omission")
+
+    # 2) english residue signal (source_span survives in english script)
+    source_span = memory.source_span if memory else None
+    if source_span and re.search(r"[A-Za-z]", source_span):
+        source_tokens = [tok.lower() for tok in re.findall(r"[A-Za-z]+", source_span) if len(tok) >= 4]
+        draft_lower = draft_text.lower()
+        if source_span.lower() in draft_lower or any(tok in draft_lower for tok in source_tokens):
+            reasons.append("english_residue")
+            error_types.append("Residue")
+
+    # 3) low-margin signal from reranker uncertainty
+    if top_candidate and top_candidate.margin_to_next is not None and top_candidate.margin_to_next < threshold:
+        reasons.append("low_margin")
+
+    if not reasons:
+        return ERCMDecision(
+            should_run=False,
+            reasons=["normal"],
+            confidence=_to_float_or_none(top_candidate.final_score) if top_candidate else None,
+            error_types=None,
+            verifier_score=_to_float_or_none(top_candidate.final_score) if top_candidate else None,
+        )
+
+    return ERCMDecision(
+        should_run=True,
+        reasons=list(dict.fromkeys(reasons)),
+        confidence=_to_float_or_none(top_candidate.final_score) if top_candidate else None,
+        error_types=list(dict.fromkeys(error_types)) if error_types else None,
+        verifier_score=_to_float_or_none(top_candidate.final_score) if top_candidate else None,
+    )
+
+
 def run_llm_judge(
-        source: str,
-        draft: TranslationDraft,
-        target_lang: str,
-        alias_set: list[str],
-        llm: LLM,
+    source: str,
+    draft: TranslationDraft,
+    target_lang: str,
+    alias_set: list[str],
+    llm: LLM,
 ) -> ERCMDecision:
     memory = draft.used_memory
     source_span = memory.source_span if memory else None
 
-    pre_error_type, pre_reason = pre_check_errors(draft.draft_text, alias_set, target_lang)
+    pre_error_type, _ = pre_check_errors(draft.draft_text, alias_set, target_lang)
 
     if pre_error_type:
         return ERCMDecision(
             should_run=True,
-            reasons=[pre_reason],
+            reasons=[_ERROR_TO_REASON.get(pre_error_type, "ercm_needed")],
+            confidence=1.0,
             error_types=[pre_error_type],
-            )
+        )
 
     user_prompt = _build_user_prompt(
         source=source,
@@ -170,30 +270,40 @@ def run_llm_judge(
 
     outputs = llm.chat(conversation, sampling_params=sampling_params)
     raw = outputs[0].outputs[0].text.strip()
+    json_text = _extract_json_text(raw)
 
     try:
-        parsed = json.loads(raw)
+        parsed = json.loads(json_text)
     except json.JSONDecodeError:
         return ERCMDecision(
             should_run=False,
             reasons=["judge_parse_error"],
+            confidence=0.0,
             error_types=None,
         )
-    
-    res_type = parsed.get("error_type", "Normal")
-    reason = parsed.get("reason", "")
 
-    error_types = [res_type]
-    
-    if res_type == "Normal":
+    parsed_error_types = parsed.get("error_types")
+    if isinstance(parsed_error_types, list):
+        error_types = [et for et in parsed_error_types if et in _VALID_ERROR_TYPES and et != "Normal"]
+    else:
+        single_type = parsed.get("error_type", "Normal")
+        error_types = [single_type] if single_type in _VALID_ERROR_TYPES and single_type != "Normal" else []
+
+    if not error_types:
         return ERCMDecision(
             should_run=False,
-            reasons=["normal"],
+            reasons=[_ERROR_TO_REASON["Normal"]],
+            confidence=_to_float_or_none(parsed.get("confidence", 0.8)),
             error_types=None,
+            verifier_score=_to_float_or_none(parsed.get("verifier_score")),
         )
-    
+
+    reason_codes = [_ERROR_TO_REASON.get(error_type, "ercm_needed") for error_type in error_types]
+
     return ERCMDecision(
         should_run=True,
-        reasons=[reason],
+        reasons=list(dict.fromkeys(reason_codes)),
+        confidence=_to_float_or_none(parsed.get("confidence", 0.8)),
         error_types=error_types,
+        verifier_score=_to_float_or_none(parsed.get("verifier_score")),
     )
