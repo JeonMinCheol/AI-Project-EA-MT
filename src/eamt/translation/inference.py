@@ -114,6 +114,40 @@ def _normalize_prompt_target_lang(value: Any) -> str:
     return text
 
 
+def _extract_example_target_lang(example: EAMTExample | Mapping[str, Any]) -> str:
+    return _normalize_target_locale(
+        _get_value(example, "target_locale", "target_lang", "target_language")
+    )
+
+
+def _extract_prediction_text_from_ercm_output(value: Any) -> str:
+    if value is None:
+        return ""
+
+    candidate_keys = (
+        "final_text",
+        "revised_text",
+        "corrected_text",
+        "prediction",
+        "draft_text",
+        "raw_generation",
+    )
+
+    if isinstance(value, Mapping):
+        for key in candidate_keys:
+            parsed = _safe_str(value.get(key))
+            if parsed:
+                return parsed
+        return ""
+
+    for key in candidate_keys:
+        parsed = _safe_str(getattr(value, key, None))
+        if parsed:
+            return parsed
+
+    return _safe_str(value)
+
+
 def _resolve_torch_dtype(dtype: Any) -> Any:
     if dtype in (None, "auto"):
         return dtype
@@ -835,6 +869,7 @@ def generate_draft_translation(
         used_memory=memory,
         used_logit_bias=None,
         generation_trace=generation_trace,
+        target_lang=_extract_example_target_lang(example),
     )
 
 
@@ -870,9 +905,14 @@ def predict_eamt_dataset(
     show_progress: bool = True,
     progress_desc: str = "Generating translations",
     progress_log_interval_seconds: float = 30.0,
+    ercm_runner: Callable[
+        [EAMTExample | Mapping[str, Any], TranslationDraft, EntityMemoryBlock | None],
+        Any,
+    ] | None = None,
 ) -> List[Dict[str, str]]:
     """
     EA-MT 데이터셋 전체에 대해 prediction JSONL 호환 레코드를 만든다.
+    draft 생성 -> ERCM(optional) -> 최종 prediction record 생성
     """
     total_examples = len(dataset)
     effective_batch_size = max(1, int(batch_size))
@@ -911,19 +951,33 @@ def predict_eamt_dataset(
             for example in batch_examples
         ]
 
-        batch_predictions = _predict_batch_records_with_fallback(
-            batch_examples,
-            batch_memories,
-            model=model,
-            tokenizer=tokenizer,
-            mode=mode,
-            system_prompt=system_prompt,
-            max_new_tokens=max_new_tokens,
-            temperature=temperature,
-            top_p=top_p,
-            do_sample=do_sample,
-            generation_kwargs=generation_kwargs,
-        )
+        batch_predictions: List[Dict[str, str]] = []
+
+        for example, memory in zip(batch_examples, batch_memories):
+            draft = generate_draft_translation(
+                example,
+                model,
+                tokenizer,
+                memory=memory,
+                mode=mode,
+                system_prompt=system_prompt,
+                max_new_tokens=max_new_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                do_sample=do_sample,
+                generation_kwargs=generation_kwargs,
+            )
+
+            prediction_text = draft.draft_text
+
+            if ercm_runner is not None:
+                ercm_output = ercm_runner(example, draft, memory)
+                parsed_text = _extract_prediction_text_from_ercm_output(ercm_output)
+                if parsed_text:
+                    prediction_text = parsed_text
+
+            batch_predictions.append(make_prediction_record(example, prediction_text))
+
         predictions.extend(batch_predictions)
 
         processed = len(predictions)
