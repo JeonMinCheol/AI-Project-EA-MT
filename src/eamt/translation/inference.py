@@ -114,7 +114,16 @@ def _normalize_prompt_target_lang(value: Any) -> str:
     return text
 
 
-def _extract_example_target_lang(example: EAMTExample | Mapping[str, Any]) -> str:
+def _extract_example_target_lang_code(example: EAMTExample | Mapping[str, Any]) -> str:
+    """
+    TranslationDraft.target_lang에는 locale(ko_KR) 대신 언어코드(ko)를 담는다.
+    """
+    return _normalize_prompt_target_lang(
+        _get_value(example, "target_lang", "target_locale", "target_language")
+    )
+
+
+def _extract_example_target_locale(example: EAMTExample | Mapping[str, Any]) -> str:
     return _normalize_target_locale(
         _get_value(example, "target_locale", "target_lang", "target_language")
     )
@@ -869,7 +878,7 @@ def generate_draft_translation(
         used_memory=memory,
         used_logit_bias=None,
         generation_trace=generation_trace,
-        target_lang=_extract_example_target_lang(example),
+        target_lang=_extract_example_target_lang_code(example),
     )
 
 
@@ -880,9 +889,7 @@ def make_prediction_record(example: EAMTExample | Mapping[str, Any], prediction:
         "source_language": _normalize_source_locale(
             _get_value(example, "source_locale", "source_language", default="en_US")
         ),
-        "target_language": _normalize_target_locale(
-            _get_value(example, "target_locale", "target_lang", "target_language")
-        ),
+        "target_language": _extract_example_target_locale(example),
         "text": source,
         "prediction": _safe_str(prediction),
     }
