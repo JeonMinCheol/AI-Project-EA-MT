@@ -35,9 +35,9 @@ else:  # pragma: no cover
         COMET_IMPORT_ERROR_DETAIL = None
 
 try:
-    from DTOlist import EAMTExample, EntityMemoryBlock, TranslationDraft
+    from DTOlist import EAMTExample, EntityMemoryBlock
 except Exception:  # pragma: no cover
-    from src.DTOlist import EAMTExample, EntityMemoryBlock, TranslationDraft
+    from src.DTOlist import EAMTExample, EntityMemoryBlock
 
 try:
     from .inference import (
@@ -503,10 +503,6 @@ def evaluate_qwen_on_eamt(
     generation_batch_size: int = 8,
     show_progress: bool = True,
     progress_log_interval_seconds: float = 30.0,
-    ercm_runner: Callable[
-        [EAMTExample | Mapping[str, Any], TranslationDraft, EntityMemoryBlock | None],
-        Any,
-    ] | None = None,
 ) -> Dict[str, Any]:
     pipeline_start_time = time.monotonic()
     _log_stage_event(
@@ -539,7 +535,6 @@ def evaluate_qwen_on_eamt(
         batch_size=generation_batch_size,
         show_progress=show_progress,
         progress_log_interval_seconds=progress_log_interval_seconds,
-        ercm_runner=ercm_runner,
     )
 
     if loaded_model_in_function and release_model_before_metrics:
