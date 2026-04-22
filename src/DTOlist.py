@@ -218,7 +218,8 @@ class TranslationDraft():
         raw_generation: str,                      # 디코더 원출력 또는 후처리 전 텍스트
         used_memory: EntityMemoryBlock | None,    # 생성에 사용된 entity memory
         used_logit_bias: dict[str, float] | None = None,  # 적용된 bias 토큰/문자열과 가중치
-        generation_trace: dict[str, Any] = None   # 생성 디버그 정보 (beam, score, step log 등)
+        generation_trace: dict[str, Any] = None,  # 생성 디버그 정보 (beam, score, step log 등)
+        target_lang: str | None = None            # 샘플의 목표 언어 코드
     ):
         self.prompt_text = prompt_text
         self.draft_text = draft_text
@@ -226,9 +227,18 @@ class TranslationDraft():
         self.used_memory = used_memory
         self.used_logit_bias = used_logit_bias
         self.generation_trace = generation_trace
+        self.target_lang = target_lang
 
     def __call__(self, *args, **kwds):
-        return self.prompt_text, self.draft_text, self.raw_generation, self.used_memory, self.used_logit_bias, self.generation_trace
+        return (
+            self.prompt_text,
+            self.draft_text,
+            self.raw_generation,
+            self.used_memory,
+            self.used_logit_bias,
+            self.generation_trace,
+            self.target_lang,
+        )
 
 
 class ERCMDecision():
